@@ -15,12 +15,12 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
-      - run: python -m pip install --upgrade pip
+      - run: python -m pip install --upgrade pip "setuptools>=83" wheel
       - run: python -m pip install -e ".[dev]"
       - run: ruff check .
       - run: mypy src/verified_mirror --ignore-missing-imports
