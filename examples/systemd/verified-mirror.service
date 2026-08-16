@@ -1,0 +1,36 @@
+[Unit]
+Description=Verified one-way directory mirror
+Documentation=https://github.com/thanosipsis/verified-mirror
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=verified-mirror
+Group=verified-mirror
+UMask=0077
+Environment=PROTON_DRIVE_CACHE_DIR=/var/lib/verified-mirror/proton-cli
+Environment=PROTON_DRIVE_LOG_LEVEL=INFO
+ExecStart=/opt/verified-mirror/venv/bin/verified-mirror --config /etc/verified-mirror/config.toml sync
+TimeoutStartSec=36h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/verified-mirror
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=

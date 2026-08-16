@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily verified directory mirror
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=5m
+Unit=verified-mirror.service
+
+[Install]
+WantedBy=timers.target

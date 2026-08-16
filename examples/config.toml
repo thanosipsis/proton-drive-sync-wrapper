@@ -1,0 +1,27 @@
+[source]
+path = "/srv/backups"
+# Optional JSON marker containing a positive completedAtEpoch.
+# marker = "/var/lib/my-backup/last-success.json"
+# Optional advisory lock shared with the source producer.
+# lock_file = "/run/lock/my-backup/repository.lock"
+symlinks = "reject"
+
+[destination]
+provider = "proton-drive"
+root = "/my-files/Server Backup"
+# executable = "/usr/local/bin/proton-drive"
+
+[state]
+directory = "/var/lib/verified-mirror"
+
+[safety]
+minimum_files = 1
+minimum_bytes = 0
+max_delete_files = 500
+max_delete_fraction = 0.05
+full_audit_interval_days = 30
+
+[performance]
+verify_workers = 4
+upload_batch_size = 20
+maximum_queued_parents = 8

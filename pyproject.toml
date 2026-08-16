@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.24"]
+build-backend = "hatchling.build"
+
+[project]
+name = "verified-mirror"
+version = "0.1.0"
+description = "Resumable, safety-first, one-way directory mirroring"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Thano Sipsis" }]
+keywords = ["backup", "mirror", "proton-drive", "sync"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: System :: Archiving :: Backup",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "bandit>=1.9",
+  "build>=1.3",
+  "mypy>=1.15",
+  "pip-audit>=2.9",
+  "ruff>=0.12",
+]
+
+[project.urls]
+Homepage = "https://github.com/thanosipsis/verified-mirror"
+Issues = "https://github.com/thanosipsis/verified-mirror/issues"
+
+[project.scripts]
+verified-mirror = "verified_mirror.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/verified_mirror"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
