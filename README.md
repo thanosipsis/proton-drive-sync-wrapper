@@ -137,7 +137,13 @@ approval would be required without requiring or recording one.
 - `full-audit` re-reads and remotely reconciles every file.
 - Normal `sync` automatically performs a full audit after the configured age.
 - Back up SQLite with its online backup API or while the mirror is stopped; do
-  not copy only the main file while WAL mode is active.
+  not copy only the main file while WAL mode is active. The built-in command
+  does not migrate the source database:
+
+  ```bash
+  verified-mirror --config /etc/verified-mirror/config.toml \
+    state-backup /secure/path/index.sqlite3.backup
+  ```
 - If state is lost, keep deletion disabled and bootstrap into a new state
   directory. Existing matching remote objects will be verified and skipped.
 

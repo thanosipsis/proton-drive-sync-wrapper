@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "verified-mirror"
-version = "0.1.0"
+version = "0.1.1"
 description = "Resumable, safety-first, one-way directory mirroring"
 readme = "README.md"
 requires-python = ">=3.11"

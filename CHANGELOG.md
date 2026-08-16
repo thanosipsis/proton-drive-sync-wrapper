@@ -2,6 +2,10 @@
 
 All notable changes will be documented here.
 
+## 0.1.1 - 2026-08-15
+
+- Added a pre-migration-safe online state backup command.
+
 ## 0.1.0 - 2026-08-15
 
 - Extracted the production Proton Drive mirror into an installable package.

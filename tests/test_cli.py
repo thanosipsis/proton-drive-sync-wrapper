@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -69,6 +70,27 @@ maximum_queued_parents = 2
         code, output, _ = self.invoke("doctor")
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output)["stateIntegrity"], "ok")
+
+    def test_state_backup_does_not_migrate_source(self):
+        self.state.mkdir()
+        source_database = self.state / "index.sqlite3"
+        connection = sqlite3.connect(source_database)
+        connection.execute("PRAGMA user_version=1")
+        connection.close()
+        backup = self.root / "state-backup.sqlite3"
+
+        code, output, _ = self.invoke("state-backup", str(backup))
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(output)["integrity"], "ok")
+        source = sqlite3.connect(source_database)
+        copied = sqlite3.connect(backup)
+        try:
+            self.assertEqual(source.execute("PRAGMA user_version").fetchone()[0], 1)
+            self.assertEqual(copied.execute("PRAGMA user_version").fetchone()[0], 1)
+        finally:
+            source.close()
+            copied.close()
 
 
 if __name__ == "__main__":

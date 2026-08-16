@@ -19,9 +19,11 @@ including dry runs.
 
 ## State backup
 
-SQLite uses WAL mode and `synchronous=FULL`. Use the SQLite backup API while the
-program is live, or stop scheduled runs and copy the database together with its
-WAL state. Test state restoration into an isolated path.
+SQLite uses WAL mode and `synchronous=FULL`. `state-backup OUTPUT` uses SQLite's
+online backup API, refuses to overwrite its target, verifies the result, and
+does not migrate the source database. Alternatively, stop scheduled runs and
+copy the database together with its WAL state. Test restoration into an
+isolated path.
 
 ## Upgrades
 

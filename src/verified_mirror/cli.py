@@ -7,6 +7,7 @@ import fcntl
 import json
 import os
 import shutil
+import sqlite3
 import sys
 import tempfile
 from collections.abc import Iterator, Sequence
@@ -70,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser("full-audit", help="Re-hash and remotely reconcile every file")
     commands.add_parser("dry-run", help="Plan without changing remote or persistent state")
     commands.add_parser("status", help="Print machine-readable state summary")
+    backup = commands.add_parser(
+        "state-backup", help="Create a consistent SQLite backup without migrating state"
+    )
+    backup.add_argument("output", type=Path)
     deletions = commands.add_parser("deletions", help="Manage the remote-trash feature gate")
     deletions.add_argument("action", choices=("enable", "disable", "status"))
     approval = commands.add_parser("approve-deletions", help="Approve one exact deletion set")
@@ -123,6 +128,39 @@ def _open_database(config: AppConfig) -> StateDatabase:
     return StateDatabase(config.state_dir / "index.sqlite3")
 
 
+def _backup_state(config: AppConfig, output: Path) -> int:
+    source_path = config.state_dir / "index.sqlite3"
+    if not source_path.is_file():
+        raise PrerequisiteError(f"State database is unavailable: {source_path}")
+    output = output.expanduser().resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError as error:
+        raise ConfigurationError(f"Refusing to overwrite existing backup: {output}") from error
+    os.close(descriptor)
+    source: sqlite3.Connection | None = None
+    destination: sqlite3.Connection | None = None
+    backup_succeeded = False
+    try:
+        source = sqlite3.connect(f"{source_path.resolve().as_uri()}?mode=ro", uri=True)
+        destination = sqlite3.connect(output)
+        source.backup(destination)
+        integrity = str(destination.execute("PRAGMA integrity_check").fetchone()[0])
+        if integrity != "ok":
+            raise PrerequisiteError(f"Backup integrity check failed: {integrity}")
+        backup_succeeded = True
+    finally:
+        if destination is not None:
+            destination.close()
+        if source is not None:
+            source.close()
+        if not backup_succeeded:
+            output.unlink(missing_ok=True)
+    print(json.dumps({"backup": str(output), "integrity": "ok"}, sort_keys=True))
+    return 0
+
+
 def _run_dry(config: AppConfig, provider: Provider, source_database: StateDatabase) -> dict:
     with tempfile.TemporaryDirectory(prefix="verified-mirror-dry-run-") as temporary:
         temporary_state = Path(temporary)
@@ -151,18 +189,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "config-validate":
             print(json.dumps({"valid": True, "config": str(args.config)}))
             return 0
+        if args.command == "state-backup":
+            return _backup_state(config, args.output)
 
-        provider = make_provider(config)
         database = _open_database(config)
         try:
+            if args.command == "status":
+                print(json.dumps(database.summary(), sort_keys=True))
+                return 0
+            provider = make_provider(config)
             binding = config.binding(
                 destination_identity=provider.destination_identity,
                 provider_id=provider.capabilities.provider_id,
                 path_semantics=provider.capabilities.path_semantics,
             )
-            if args.command == "status":
-                print(json.dumps(database.summary(), sort_keys=True))
-                return 0
             if args.command == "state-bind":
                 database.bind(binding, expected_tracked_files=args.expect_tracked_files)
                 print(json.dumps({"bound": True, "binding": binding}, sort_keys=True))
