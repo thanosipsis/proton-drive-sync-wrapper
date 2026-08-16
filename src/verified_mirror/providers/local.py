@@ -21,12 +21,18 @@ class LocalFilesystemProvider:
         supports_trash=True,
         max_read_workers=16,
         max_upload_batch=100,
-        reserved_root_names=(".verified-mirror-trash",),
+        reserved_root_names=(
+            ".proton-drive-sync-wrapper-trash",
+            ".proton-drive-relay-trash",
+            ".verified-mirror-trash",
+        ),
     )
 
     def __init__(self, root: Path):
         self.root = root.resolve()
-        self.trash_root = self.root / ".verified-mirror-trash"
+        self.trash_root = self.root / ".proton-drive-sync-wrapper-trash"
+        self.relay_trash_root = self.root / ".proton-drive-relay-trash"
+        self.legacy_trash_root = self.root / ".verified-mirror-trash"
 
     @property
     def destination_identity(self) -> str:
@@ -61,7 +67,7 @@ class LocalFilesystemProvider:
             raise RemoteError(f"Local destination directory is unavailable: {directory}")
         items: list[RemoteItem] = []
         for path in sorted(directory.iterdir(), key=lambda item: item.name):
-            if path == self.trash_root:
+            if path in (self.trash_root, self.relay_trash_root, self.legacy_trash_root):
                 continue
             stat_result = path.stat(follow_symlinks=False)
             if path.is_symlink():
@@ -97,6 +103,18 @@ class LocalFilesystemProvider:
                 os.replace(temporary, parent / source.name)
             finally:
                 temporary.unlink(missing_ok=True)
+
+    def download(self, relative_path: str, local_parent: Path) -> Path:
+        source = self._path(relative_path)
+        if not source.is_file():
+            raise RemoteError(f"Local provider file is unavailable: {source}")
+        local_parent.mkdir(parents=True, exist_ok=True)
+        destination = local_parent / source.name
+        with source.open("rb") as source_handle, destination.open("xb") as target_handle:
+            shutil.copyfileobj(source_handle, target_handle, 4 * 1024 * 1024)
+            target_handle.flush()
+            os.fsync(target_handle.fileno())
+        return destination
 
     def trash(self, relative_paths: Sequence[str]) -> None:
         for relative in relative_paths:

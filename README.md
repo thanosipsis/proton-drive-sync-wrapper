@@ -1,45 +1,79 @@
-# Verified Mirror
+# Proton Drive Sync Wrapper
 
-Verified Mirror is a resumable, safety-first, one-way directory mirror. It was
-created to copy an immutable backup repository to Proton Drive through Proton's
-official CLI, but it works with ordinary directories and has a provider
-interface that keeps cloud-specific behavior out of the synchronization engine.
+Proton Drive Sync Wrapper adds resumable, safety-first synchronization to Proton's
+official command-line client. It can run as either a local-to-Proton relay or a
+conservative two-way sync engine, and its provider boundary can support other
+storage services without putting cloud-specific behavior in the sync engine.
 
 > [!WARNING]
-> A mirror is not a complete backup strategy. Source corruption or an approved
-> deletion can propagate. Keep independent snapshots, retention, and tested
-> restore procedures.
+> Sync is not a backup. A deletion that passes the configured safety gates can
+> propagate. Keep independent snapshots, retention, and tested restore procedures.
 
-## Why it exists
+Proton Drive Sync Wrapper is independent software. It is not affiliated with or
+endorsed by Proton AG.
 
-The official Proton Drive CLI handles authentication, encryption, uploads, and
-service-specific rate limits. Verified Mirror adds orchestration needed for a
-large unattended tree:
+## What it adds
 
-- durable SQLite generations and crash-safe resume;
-- metadata-only skips for unchanged files;
-- local SHA-256 plus provider-checksum reconciliation;
-- bounded parallel reads and sequential verified writes;
-- a source-change check around every content read;
+- `one-way` and `two-way` direction switches;
+- durable SQLite generations and crash-safe upload-only resume;
+- a three-way baseline for detecting local and remote changes;
+- safe handling of one-sided additions and edits in either direction;
+- conflict stops when both sides changed differently;
+- local SHA-256 plus provider-checksum verification;
 - remote deletion disabled by default;
-- recoverable trash, mass-deletion limits, and exact-set approvals;
-- state binding that prevents reusing an index with another source or target;
+- recoverable local and remote trash, mass-deletion limits, and exact-set approvals;
+- state binding that prevents an index from being reused with another root or direction;
 - machine-readable status without filenames, credentials, or object IDs;
-- dry runs that modify neither the remote nor persistent state.
+- dry runs that modify neither side nor persistent state.
 
-The source is always read-only. Verified Mirror is intentionally not a
-bidirectional sync engine, mounted filesystem, or permanent-delete tool.
+The official Proton Drive CLI continues to handle authentication, encryption,
+uploads, downloads, and service rate limits. The wrapper invokes it with argument
+arrays and uses only its public command-line interface.
+
+## Choose a direction
+
+```toml
+[sync]
+direction = "two-way"
+```
+
+The available values are:
+
+| Direction | Behavior | Best for |
+| --- | --- | --- |
+| `one-way` | Local files are authoritative; changes only travel to the provider | Backups and publishing |
+| `two-way` | Additions and one-sided edits travel in both directions | A synced working directory |
+
+Configurations created before version 0.2 remain one-way when `[sync]` is
+absent. Changing an existing state directory from one direction to the other is
+blocked; create a separate state directory and review a dry run first.
+`upload-only` is accepted as a descriptive compatibility alias for `one-way`.
+
+## Two-way conflict rules
+
+The wrapper compares the current local file, current remote item, and last trusted
+generation:
+
+- a change on only one side is copied to the other;
+- matching changes on both sides are accepted as already converged;
+- different changes on both sides stop the run without overwriting either copy;
+- a deletion opposed by an edit is a conflict;
+- a one-sided deletion propagates only after deletion safety is enabled;
+- files unique to either side during the first run are merged;
+- different files at the same path during the first run are a conflict.
+
+Conflicts are deliberately resolved by the person who owns the data. Edit or
+rename one of the copies, run `dry-run`, and then sync again.
 
 ## Supported providers
 
-| Provider | Status | Verification | Deletion behavior |
+| Provider | Status | Verification | Recoverable deletion |
 | --- | --- | --- | --- |
-| Proton Drive official CLI | Primary | Claimed remote size and SHA-1 | Moves to Proton Trash |
-| Local filesystem | Reference | Independently read SHA-256 | Moves under `.verified-mirror-trash` |
+| Proton Drive official CLI | Primary | Remote size and claimed SHA-1 | Proton Trash |
+| Local filesystem | Reference/testing | Independently read SHA-256 | `.proton-drive-sync-wrapper-trash` |
 
-The Proton adapter does not call private APIs and does not bundle or modify
-Proton software. Install the official CLI from [Proton's download page](https://proton.me/download/drive/cli)
-and follow [Proton's authentication instructions](https://proton.me/support/drive-cli).
+The provider contract supports listing, folder creation, upload, download, and
+trash. See [provider development](docs/providers.md) to add another service.
 
 ## Requirements
 
@@ -47,121 +81,108 @@ and follow [Proton's authentication instructions](https://proton.me/support/driv
 - Python 3.11 or newer
 - For Proton Drive: an authenticated official `proton-drive` CLI
 
-Verified Mirror itself has no runtime Python dependencies.
+The wrapper itself has no runtime Python dependencies. Install the official CLI from
+[Proton's download page](https://proton.me/download/drive/cli) and follow
+[Proton's authentication instructions](https://proton.me/support/drive-cli).
 
 ## Installation
-
-From a release checkout:
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install .
-.venv/bin/verified-mirror --version
+.venv/bin/proton-drive-sync-wrapper --version
 ```
 
-Create a starter configuration:
+Create and edit a starter configuration:
 
 ```bash
-.venv/bin/verified-mirror --config ./verified-mirror.toml init
-chmod 600 ./verified-mirror.toml
+proton-drive-sync-wrapper --config ./proton-drive-sync-wrapper.toml init
+chmod 600 ./proton-drive-sync-wrapper.toml
+proton-drive-sync-wrapper --config ./proton-drive-sync-wrapper.toml config-validate
+proton-drive-sync-wrapper --config ./proton-drive-sync-wrapper.toml doctor
 ```
 
-Edit the source, destination, and state paths, then validate them:
-
-```bash
-.venv/bin/verified-mirror --config ./verified-mirror.toml config-validate
-.venv/bin/verified-mirror --config ./verified-mirror.toml doctor
-```
-
-`doctor` performs a read-only destination listing. It does not upload or delete.
+`doctor` lists the destination but does not upload, download, or delete.
 
 ## First run
 
-Start with a non-mutating plan:
+Always inspect a non-mutating plan first:
 
 ```bash
-verified-mirror --config /etc/verified-mirror/config.toml dry-run
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml dry-run
 ```
 
-Then bootstrap the first trusted generation:
+Then establish the first trusted generation and run incremental syncs:
 
 ```bash
-verified-mirror --config /etc/verified-mirror/config.toml bootstrap
-verified-mirror --config /etc/verified-mirror/config.toml status
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml bootstrap
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml sync
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml status
 ```
 
-Subsequent runs are incremental:
-
-```bash
-verified-mirror --config /etc/verified-mirror/config.toml sync
-```
-
-An optional producer marker prevents `sync` from running until another program
-has atomically written JSON such as:
-
-```json
-{"completedAtEpoch": 1786831200}
-```
-
-An optional advisory lock serializes Verified Mirror with a cooperating source
-writer. For changing data, filesystem or storage snapshots are stronger than an
-advisory lock that other processes may ignore.
+In one-way mode an optional producer marker can defer `sync` until another
+program atomically writes a newer successful completion time. An optional
+advisory lock can serialize the wrapper with a cooperating local writer.
 
 ## Deletion safety
 
-Local disappearance initially creates only a tombstone. Remote trash is a
-separate state-database feature gate:
+Deletion propagation begins disabled. Review the dry run before enabling it:
 
 ```bash
-verified-mirror --config /etc/verified-mirror/config.toml deletions enable
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml deletions enable
 ```
 
-If a deletion set exceeds the lower of the configured absolute or percentage
-limits, the run stops without trashing anything. Review the source and exact run
-before approving:
+In two-way mode, a remote deletion moves the local copy under the state
+directory's `local-trash/RUN_ID` tree. A local deletion moves the provider copy
+to its trash. Large deletion sets stop before changing either side:
 
 ```bash
-verified-mirror --config /etc/verified-mirror/config.toml status
-verified-mirror --config /etc/verified-mirror/config.toml approve-deletions RUN_ID
-verified-mirror --config /etc/verified-mirror/config.toml sync
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml status
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml \
+  approve-deletions RUN_ID
+proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml sync
 ```
 
-Approval is bound to the run and a SHA-256 digest of its sorted path set. Any
-change to the run or set requires another approval. A dry run reports whether
-approval would be required without requiring or recording one.
+Approval is bound to the run and a SHA-256 digest of the exact sorted operation
+set, including which side will be trashed.
 
 ## Recovery and audits
 
-- Interrupted work resumes when mode, marker, and next generation match.
-- A generation becomes trusted only after every file and deletion policy passes.
-- `full-audit` re-reads and remotely reconciles every file.
-- Normal `sync` automatically performs a full audit after the configured age.
-- Back up SQLite with its online backup API or while the mirror is stopped; do
-  not copy only the main file while WAL mode is active. The built-in command
-  does not migrate the source database:
+- A trusted generation advances only after the chosen sides converge and verify.
+- Two-way sync inventories both trees and verifies every converged file.
+- `full-audit` re-reads and reconciles every file in one-way mode.
+- Back up SQLite through the built-in online backup command, not by copying its
+  main file while WAL mode may be active:
 
   ```bash
-  verified-mirror --config /etc/verified-mirror/config.toml \
+  proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml \
     state-backup /secure/path/index.sqlite3.backup
   ```
-- If state is lost, keep deletion disabled and bootstrap into a new state
-  directory. Existing matching remote objects will be verified and skipped.
+
+- If state is lost, disable deletions, use a new state directory, and inspect a
+  dry run before establishing a new baseline.
+
+## Compatibility after the rename
+
+Version 0.2 renamed Verified Mirror to Proton Drive Sync Wrapper. The
+`verified-mirror` and `proton-drive-relay` executables remain as compatibility
+aliases, the internal Python import namespace remains `verified_mirror`, and
+existing upload-only state bindings remain valid. New documentation and
+installations should use `proton-drive-sync-wrapper`.
+
+## Limitations
+
+- Sync is periodic, not a continuously watching filesystem mount.
+- Empty directories are not represented.
+- Symlinks are rejected by default and may only be ignored, never followed.
+- Two-way mode requires remote files to expose stable size and digest evidence.
+- Proton Docs and Sheets cannot be synchronized as ordinary files.
+- Remote names that cannot map safely to POSIX paths stop the run.
+- Proton verification relies on metadata returned by the official CLI; it is
+  not an independent remote download and re-hash unless a file is downloaded.
 
 See [architecture](docs/architecture.md), [operations](docs/operations.md), and
-[provider development](docs/providers.md) for the detailed contracts.
-
-## Important limitations
-
-- Empty directories are not represented; the project mirrors regular files and
-  their containing directories.
-- Symlinks are rejected by default and may only be ignored, never followed.
-- Metadata skips assume source metadata cannot be forged while the cooperating
-  lock or snapshot policy is in effect.
-- Proton verification compares locally computed content with size and digest
-  metadata returned by the official CLI. It is not an independent download and
-  re-hash of every remote object.
-- Changes made directly at the destination are discovered during a full audit,
-  not necessarily during every metadata-fast incremental run.
+[provider development](docs/providers.md) for detailed contracts.
 
 ## Development
 
@@ -175,6 +196,4 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
 .venv/bin/python -m build
 ```
 
-Verified Mirror is licensed under the [MIT License](LICENSE). Proton Drive is a
-third-party service and trademark; this project is independent and is not
-affiliated with or endorsed by Proton AG.
+Proton Drive Sync Wrapper is licensed under the [MIT License](LICENSE).

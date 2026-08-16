@@ -10,15 +10,17 @@ import time
 import unittest
 from pathlib import Path
 
+from verified_mirror.bidirectional import BidirectionalSynchronizer
 from verified_mirror.config import (
     AppConfig,
     DestinationConfig,
     PerformanceConfig,
     SafetyConfig,
     SourceConfig,
+    SyncConfig,
 )
 from verified_mirror.engine import Synchronizer
-from verified_mirror.errors import ApprovalRequired, PrerequisiteError, SafetyError
+from verified_mirror.errors import ApprovalRequired, ConflictError, PrerequisiteError, SafetyError
 from verified_mirror.models import RemoteItem
 from verified_mirror.providers.local import LocalFilesystemProvider
 from verified_mirror.providers.proton import parse_remote_items
@@ -106,6 +108,13 @@ class EngineTests(unittest.TestCase):
         with self.assertRaises(SafetyError):
             Synchronizer(self.database, LocalFilesystemProvider(other), changed).run("sync")
 
+    def test_state_binding_rejects_direction_change(self):
+        (self.source / "a").write_bytes(b"alpha")
+        self.synchronizer(full_audit=True).run("bootstrap")
+        changed = dataclasses.replace(self.config, sync=SyncConfig(direction="two-way"))
+        with self.assertRaises(SafetyError):
+            BidirectionalSynchronizer(self.database, self.provider, changed).run("sync")
+
     def test_source_state_and_local_destination_must_not_overlap(self):
         nested_state = dataclasses.replace(self.config, state_dir=self.source / "state")
         with self.assertRaises(SafetyError):
@@ -140,7 +149,7 @@ class EngineTests(unittest.TestCase):
         enabled = self.synchronizer().run("sync")
         self.assertEqual(enabled["filesTrashed"], 1)
         self.assertFalse((self.destination / "remove").exists())
-        self.assertTrue((self.destination / ".verified-mirror-trash" / "remove").exists())
+        self.assertTrue((self.destination / ".proton-drive-sync-wrapper-trash" / "remove").exists())
 
     def test_mass_deletion_requires_exact_approval(self):
         for index in range(25):
@@ -189,9 +198,16 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(self.database.summary()["trustedGeneration"], 0)
 
     def test_provider_reserved_root_name_is_rejected(self):
-        (self.source / ".verified-mirror-trash").write_text("payload", encoding="utf-8")
-        with self.assertRaises(SafetyError):
-            self.synchronizer(full_audit=True).run("bootstrap")
+        for name in (
+            ".proton-drive-sync-wrapper-trash",
+            ".proton-drive-relay-trash",
+            ".verified-mirror-trash",
+        ):
+            path = self.source / name
+            path.write_text("payload", encoding="utf-8")
+            with self.assertRaises(SafetyError):
+                self.synchronizer(full_audit=True).run("bootstrap")
+            path.unlink()
 
     def test_remote_folder_cannot_be_replaced_by_source_file(self):
         (self.source / "collision").write_text("payload", encoding="utf-8")
@@ -298,6 +314,104 @@ class MigrationTests(unittest.TestCase):
                 self.assertEqual(database.integrity_check(), "ok")
             finally:
                 database.close()
+
+
+class BidirectionalTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
+        self.local = self.root / "local"
+        self.remote = self.root / "remote"
+        self.state = self.root / "state"
+        self.local.mkdir()
+        self.remote.mkdir()
+        self.config = AppConfig(
+            source=SourceConfig(self.local),
+            destination=DestinationConfig("local-filesystem", str(self.remote)),
+            state_dir=self.state,
+            safety=SafetyConfig(full_audit_interval_days=0),
+            performance=PerformanceConfig(
+                verify_workers=2, upload_batch_size=20, maximum_queued_parents=2
+            ),
+            sync=SyncConfig(direction="two-way"),
+        )
+        self.database = StateDatabase(self.state / "index.sqlite3")
+        self.provider = LocalFilesystemProvider(self.remote)
+
+    def tearDown(self):
+        self.database.close()
+        self.temporary.cleanup()
+
+    def sync(self):
+        return BidirectionalSynchronizer(self.database, self.provider, self.config).run("sync")
+
+    def test_initial_sync_merges_non_overlapping_files(self):
+        (self.local / "from-local").write_text("local", encoding="utf-8")
+        (self.remote / "from-remote").write_text("remote", encoding="utf-8")
+
+        result = self.sync()
+
+        self.assertEqual(result["filesUploaded"], 1)
+        self.assertEqual(result["filesDownloaded"], 1)
+        self.assertEqual((self.local / "from-remote").read_text(encoding="utf-8"), "remote")
+        self.assertEqual((self.remote / "from-local").read_text(encoding="utf-8"), "local")
+
+    def test_one_sided_edits_flow_in_both_directions(self):
+        (self.local / "local-edit").write_text("base", encoding="utf-8")
+        (self.local / "remote-edit").write_text("base", encoding="utf-8")
+        self.sync()
+
+        (self.local / "local-edit").write_text("changed locally", encoding="utf-8")
+        (self.remote / "remote-edit").write_text("changed remotely", encoding="utf-8")
+        result = self.sync()
+
+        self.assertEqual(result["filesUploaded"], 1)
+        self.assertEqual(result["filesDownloaded"], 1)
+        self.assertEqual(
+            (self.remote / "local-edit").read_text(encoding="utf-8"), "changed locally"
+        )
+        self.assertEqual(
+            (self.local / "remote-edit").read_text(encoding="utf-8"), "changed remotely"
+        )
+
+    def test_divergent_edit_stops_without_overwriting_either_side(self):
+        (self.local / "conflict").write_text("base", encoding="utf-8")
+        self.sync()
+        (self.local / "conflict").write_text("local", encoding="utf-8")
+        (self.remote / "conflict").write_text("remote", encoding="utf-8")
+
+        with self.assertRaises(ConflictError):
+            self.sync()
+
+        self.assertEqual((self.local / "conflict").read_text(encoding="utf-8"), "local")
+        self.assertEqual((self.remote / "conflict").read_text(encoding="utf-8"), "remote")
+
+    def test_deletions_propagate_to_recoverable_trash_on_both_sides(self):
+        (self.local / "delete-remotely").write_text("a", encoding="utf-8")
+        (self.local / "delete-locally").write_text("b", encoding="utf-8")
+        self.sync()
+        self.database.set_meta("deletions_enabled", 1)
+        (self.local / "delete-remotely").unlink()
+        (self.remote / "delete-locally").unlink()
+
+        with self.assertRaises(ApprovalRequired):
+            self.sync()
+        run_id = str(
+            self.database.connection.execute(
+                "SELECT run_id FROM runs WHERE status='approval-required' "
+                "ORDER BY started_at DESC LIMIT 1"
+            ).fetchone()[0]
+        )
+        self.database.approve_deletions(run_id)
+        result = self.sync()
+
+        self.assertEqual(result["filesTrashed"], 1)
+        self.assertEqual(result["localFilesTrashed"], 1)
+        self.assertTrue(
+            (self.remote / ".proton-drive-sync-wrapper-trash" / "delete-remotely").exists()
+        )
+        local_trash = self.state / "local-trash" / result["runId"] / "delete-locally"
+        self.assertTrue(local_trash.exists())
 
 
 if __name__ == "__main__":

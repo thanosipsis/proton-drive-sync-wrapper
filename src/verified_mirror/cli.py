@@ -14,6 +14,7 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 
 from . import __version__
+from .bidirectional import BidirectionalSynchronizer
 from .config import AppConfig, load_config
 from .engine import Synchronizer
 from .errors import ConfigurationError, MirrorError, PrerequisiteError
@@ -53,20 +54,28 @@ def make_provider(config: AppConfig) -> Provider:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="verified-mirror",
-        description="Resumable, safety-first, one-way directory mirroring",
+        prog="proton-drive-sync-wrapper",
+        description="Resumable, safety-first Proton Drive synchronization",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "--config",
         type=Path,
-        default=Path(os.environ.get("VERIFIED_MIRROR_CONFIG", "verified-mirror.toml")),
+        default=Path(
+            os.environ.get(
+                "PROTON_DRIVE_SYNC_WRAPPER_CONFIG",
+                os.environ.get(
+                    "PROTON_DRIVE_RELAY_CONFIG",
+                    os.environ.get("VERIFIED_MIRROR_CONFIG", "proton-drive-sync-wrapper.toml"),
+                ),
+            )
+        ),
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Write a commented starter configuration")
     commands.add_parser("config-validate", help="Validate configuration without remote access")
     commands.add_parser("doctor", help="Check source, state, and provider access")
-    commands.add_parser("sync", help="Run an incremental mirror")
+    commands.add_parser("sync", help="Run an incremental upload-only or two-way sync")
     commands.add_parser("bootstrap", help="Build the first trusted generation with a full audit")
     commands.add_parser("full-audit", help="Re-hash and remotely reconcile every file")
     commands.add_parser("dry-run", help="Plan without changing remote or persistent state")
@@ -84,11 +93,15 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-STARTER_CONFIG = """# Verified Mirror configuration
+STARTER_CONFIG = """# Proton Drive Sync Wrapper configuration
+[sync]
+# Choices: "one-way" (local to provider) or "two-way" (changes flow both ways).
+direction = "two-way"
+
 [source]
 path = "/path/to/source"
 # marker = "/path/to/producer-success.json"
-# lock_file = "/run/lock/verified-mirror/source.lock"
+# lock_file = "/run/lock/proton-drive-sync-wrapper/source.lock"
 symlinks = "reject"
 
 [destination]
@@ -97,7 +110,7 @@ root = "/my-files/Server Backup"
 # executable = "/usr/local/bin/proton-drive"
 
 [state]
-directory = "/var/lib/verified-mirror"
+directory = "/var/lib/proton-drive-sync-wrapper"
 
 [safety]
 minimum_files = 1
@@ -161,14 +174,18 @@ def _backup_state(config: AppConfig, output: Path) -> int:
     return 0
 
 
+def _synchronizer_type(config: AppConfig):
+    return BidirectionalSynchronizer if config.sync.direction == "two-way" else Synchronizer
+
+
 def _run_dry(config: AppConfig, provider: Provider, source_database: StateDatabase) -> dict:
-    with tempfile.TemporaryDirectory(prefix="verified-mirror-dry-run-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="proton-drive-sync-wrapper-dry-run-") as temporary:
         temporary_state = Path(temporary)
         dry_config = dataclasses.replace(config, state_dir=temporary_state)
         dry_database = StateDatabase(temporary_state / "index.sqlite3")
         try:
             source_database.connection.backup(dry_database.connection)
-            synchronizer = Synchronizer(
+            synchronizer = _synchronizer_type(config)(
                 dry_database,
                 provider,
                 dry_config,
@@ -249,7 +266,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 if args.command == "dry-run":
                     result = _run_dry(config, provider, database)
                 else:
-                    synchronizer = Synchronizer(
+                    synchronizer = _synchronizer_type(config)(
                         database,
                         provider,
                         config,

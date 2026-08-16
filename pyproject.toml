@@ -3,9 +3,9 @@ requires = ["hatchling>=1.24"]
 build-backend = "hatchling.build"
 
 [project]
-name = "verified-mirror"
-version = "0.1.1"
-description = "Resumable, safety-first, one-way directory mirroring"
+name = "proton-drive-sync-wrapper"
+version = "0.2.0"
+description = "Resumable, safety-first upload-only and two-way Proton Drive synchronization"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -34,10 +34,13 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/thanosipsis/verified-mirror"
-Issues = "https://github.com/thanosipsis/verified-mirror/issues"
+Homepage = "https://github.com/thanosipsis/proton-drive-sync-wrapper"
+Issues = "https://github.com/thanosipsis/proton-drive-sync-wrapper/issues"
 
 [project.scripts]
+proton-drive-sync-wrapper = "verified_mirror.cli:main"
+# Compatibility alias for installations made before the project rename.
+proton-drive-relay = "verified_mirror.cli:main"
 verified-mirror = "verified_mirror.cli:main"
 
 [tool.hatch.build.targets.wheel]

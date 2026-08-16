@@ -151,6 +151,7 @@ class Synchronizer:
             "prerequisite": "A configured prerequisite is unavailable",
             "configuration": "Configuration is invalid",
             "safety": "A safety check blocked the run",
+            "conflict": "Local and remote changes conflict; inspect private service logs",
             "internal": "The run failed; inspect private service logs",
         }
         return messages.get(failure.category, messages["internal"])
@@ -238,7 +239,7 @@ class Synchronizer:
         algorithm = self.provider.capabilities.checksum_algorithm
         with concurrent.futures.ThreadPoolExecutor(
             max_workers=self.verify_workers,
-            thread_name_prefix="verified-mirror-read",
+            thread_name_prefix="proton-drive-sync-wrapper-read",
         ) as executor:
             pending: dict[concurrent.futures.Future, str] = {}
 
@@ -529,6 +530,7 @@ class Synchronizer:
         return {
             "runId": self.run_id,
             "generation": self.generation,
+            "direction": "one-way",
             "dryRun": self.dry_run,
             "fullAudit": self.full_audit,
             "deletionsEnabled": deletions_enabled,

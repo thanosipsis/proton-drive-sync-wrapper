@@ -154,6 +154,24 @@ class ProtonDriveProvider:
             ]
         )
 
+    def download(self, relative_path: str, local_parent: Path) -> Path:
+        name = PurePosixPath(relative_path).name
+        local_parent.mkdir(parents=True, exist_ok=True)
+        self._run(
+            [
+                "filesystem",
+                "download",
+                "--file-conflict-strategy",
+                "replace",
+                _join(self.root, relative_path),
+                str(local_parent),
+            ]
+        )
+        downloaded = local_parent / name
+        if not downloaded.is_file():
+            raise RemoteError(f"Downloaded file did not appear locally: {relative_path}")
+        return downloaded
+
     def trash(self, relative_paths: Sequence[str]) -> None:
         if relative_paths:
             self._run(
