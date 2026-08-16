@@ -20,6 +20,10 @@ class SafetyError(MirrorError):
     category = "safety"
 
 
+class ConflictError(SafetyError):
+    category = "conflict"
+
+
 class ApprovalRequired(SafetyError):
     category = "approval-required"
 

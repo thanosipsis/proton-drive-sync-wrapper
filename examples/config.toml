@@ -1,3 +1,7 @@
+[sync]
+# Use "one-way" for backups or "two-way" for a synced working directory.
+direction = "two-way"
+
 [source]
 path = "/srv/backups"
 # Optional JSON marker containing a positive completedAtEpoch.
@@ -12,7 +16,7 @@ root = "/my-files/Server Backup"
 # executable = "/usr/local/bin/proton-drive"
 
 [state]
-directory = "/var/lib/verified-mirror"
+directory = "/var/lib/proton-drive-sync-wrapper"
 
 [safety]
 minimum_files = 1

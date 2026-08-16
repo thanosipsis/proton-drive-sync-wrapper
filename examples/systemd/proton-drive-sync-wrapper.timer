@@ -1,11 +1,11 @@
 [Unit]
-Description=Daily verified directory mirror
+Description=Daily Proton Drive Sync Wrapper synchronization
 
 [Timer]
 OnCalendar=daily
 Persistent=true
 RandomizedDelaySec=5m
-Unit=verified-mirror.service
+Unit=proton-drive-sync-wrapper.service
 
 [Install]
 WantedBy=timers.target

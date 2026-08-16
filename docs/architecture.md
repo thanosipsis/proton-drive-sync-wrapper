@@ -1,10 +1,10 @@
 # Architecture
 
-Verified Mirror separates source inventory, durable generations, safety policy,
-and destination-specific operations.
+Proton Drive Sync Wrapper separates local and remote inventory, durable generations,
+safety policy, and provider-specific operations.
 
 ```text
-source directory -> stable inventory -> reconciliation queue -> provider
+local directory <-> reconciliation and conflict plan <-> provider
                          |                      |
                          +---- SQLite state ---+
                                       |
@@ -19,15 +19,31 @@ Only after reconciliation, uploads, post-upload verification, and deletion
 policy finish does one transaction merge staging and advance the trusted
 generation.
 
+## Direction modes
+
+One-way mode preserves the original resumable mirror pipeline and treats the
+local tree as authoritative. Two-way mode inventories both trees and compares
+them with the last trusted generation. That three-way comparison distinguishes a
+one-sided edit from simultaneous divergent edits without relying on timestamps
+from different systems.
+
+Two-way planning completes, conflict checks pass, and deletion approval is
+validated before any mutation begins. Each download is verified in a temporary
+directory on the destination filesystem and atomically installed. Provider and
+local objects are checked again before mutation to detect changes during a run.
+The generation commits only after a complete post-sync inventory and content
+verification show that both sides converged.
+
 A failed or interrupted generation therefore never partially replaces the
 trusted view. Verified staging and pending-upload digests survive a retry of the
 same run.
 
 ## State binding
 
-State records the canonical source path, provider ID, destination identity, path
-semantics, and a configuration fingerprint. Every operational command checks
-that binding. Changing any bound value requires a new state directory.
+State records the canonical local path, provider ID, destination identity, path
+semantics, optional two-way direction, and a configuration fingerprint. Every
+operational command checks that binding. Changing a bound value requires a new
+state directory. Legacy upload-only bindings deliberately remain compatible.
 
 Schema-1 state from the original Proton/Kopia prototype migrates to schema 2,
 but must be explicitly bound with `state-bind --expect-tracked-files N`. This

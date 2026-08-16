@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .errors import ConfigurationError
@@ -41,12 +41,18 @@ class PerformanceConfig:
 
 
 @dataclass(frozen=True)
+class SyncConfig:
+    direction: str = "upload-only"
+
+
+@dataclass(frozen=True)
 class AppConfig:
     source: SourceConfig
     destination: DestinationConfig
     state_dir: Path
     safety: SafetyConfig
     performance: PerformanceConfig
+    sync: SyncConfig = field(default_factory=SyncConfig)
 
     def binding(
         self, *, destination_identity: str, provider_id: str, path_semantics: str
@@ -58,6 +64,10 @@ class AppConfig:
             "destination": destination_identity,
             "path_semantics": path_semantics,
         }
+        # Preserve pre-rename upload-only bindings while making
+        # it impossible to enable bidirectional writes against that state by accident.
+        if self.sync.direction != "upload-only":
+            values["direction"] = self.sync.direction
         canonical = json.dumps(values, sort_keys=True, separators=(",", ":"))
         values["fingerprint"] = hashlib.sha256(canonical.encode()).hexdigest()
         return values
@@ -89,6 +99,7 @@ def load_config(path: Path) -> AppConfig:
     state = _table(payload, "state")
     safety = _table(payload, "safety")
     performance = _table(payload, "performance")
+    sync = _table(payload, "sync")
 
     try:
         source_path = Path(source["path"]).expanduser()
@@ -105,6 +116,11 @@ def load_config(path: Path) -> AppConfig:
         raise ConfigurationError(
             "destination.provider must be 'proton-drive' or 'local-filesystem'"
         )
+    direction = str(sync.get("direction", "one-way"))
+    if direction not in {"one-way", "upload-only", "two-way"}:
+        raise ConfigurationError("sync.direction must be 'one-way' or 'two-way'")
+    if direction == "one-way":
+        direction = "upload-only"
 
     safety_config = SafetyConfig(
         minimum_files=int(safety.get("minimum_files", 1)),
@@ -148,4 +164,5 @@ def load_config(path: Path) -> AppConfig:
         state_dir=state_dir,
         safety=safety_config,
         performance=performance_config,
+        sync=SyncConfig(direction=direction),
     )

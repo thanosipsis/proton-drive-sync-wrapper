@@ -1,17 +1,17 @@
 [Unit]
-Description=Verified one-way directory mirror
-Documentation=https://github.com/thanosipsis/verified-mirror
+Description=Proton Drive Sync Wrapper synchronization
+Documentation=https://github.com/thanosipsis/proton-drive-sync-wrapper
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=oneshot
-User=verified-mirror
-Group=verified-mirror
+User=proton-drive-sync-wrapper
+Group=proton-drive-sync-wrapper
 UMask=0077
-Environment=PROTON_DRIVE_CACHE_DIR=/var/lib/verified-mirror/proton-cli
+Environment=PROTON_DRIVE_CACHE_DIR=/var/lib/proton-drive-sync-wrapper/proton-cli
 Environment=PROTON_DRIVE_LOG_LEVEL=INFO
-ExecStart=/opt/verified-mirror/venv/bin/verified-mirror --config /etc/verified-mirror/config.toml sync
+ExecStart=/opt/proton-drive-sync-wrapper/venv/bin/proton-drive-sync-wrapper --config /etc/proton-drive-sync-wrapper/config.toml sync
 TimeoutStartSec=36h
 Nice=10
 IOSchedulingClass=best-effort
@@ -27,7 +27,7 @@ ProtectKernelModules=true
 ProtectKernelTunables=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/var/lib/verified-mirror
+ReadWritePaths=/var/lib/proton-drive-sync-wrapper
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RestrictNamespaces=true
 RestrictRealtime=true

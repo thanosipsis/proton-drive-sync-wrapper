@@ -2,6 +2,15 @@
 
 All notable changes will be documented here.
 
+## 0.2.0 - 2026-08-16
+
+- Renamed the project, distribution, primary command, and repository to Proton Drive Sync Wrapper.
+- Added `sync.direction` with backward-compatible `one-way` and new `two-way` modes.
+- Added verified provider downloads and remote-to-local synchronization.
+- Added three-way edit detection and non-destructive conflict stops.
+- Added gated deletion propagation with recoverable trash on both sides.
+- Retained `proton-drive-relay`, `verified-mirror`, and `verified_mirror` as compatibility aliases.
+
 ## 0.1.1 - 2026-08-15
 
 - Added a pre-migration-safe online state backup command.

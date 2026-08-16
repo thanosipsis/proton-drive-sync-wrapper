@@ -2,9 +2,14 @@
 
 ## Scheduling
 
-Run Verified Mirror after the source producer. A marker and shared advisory lock
-are useful when the producer can cooperate. Prefer a read-only filesystem
+Schedule Proton Drive Sync Wrapper at the interval appropriate for the data. In
+one-way mode, run it after the source producer; a marker and shared advisory
+lock are useful when the producer can cooperate. Prefer a read-only filesystem
 snapshot when consistent snapshots are available.
+
+Two-way mode is periodic rather than continuously watching. Do not run two wrapper
+processes against the same roots or state directory concurrently. Review
+conflicts manually; the wrapper will not choose a winner for divergent edits.
 
 The example systemd unit is intentionally a template: replace source mount,
 user/group, configuration path, and writable CLI state for the target host.
@@ -31,7 +36,7 @@ isolated path.
 2. Back up the state database correctly.
 3. Install the reviewed release in a versioned virtual environment.
 4. Run `config-validate`, `status`, and `doctor`.
-5. Run `dry-run` and review planned uploads and trash operations.
+5. Run `dry-run` and review planned uploads, downloads, and trash operations.
 6. Re-enable the schedule.
 
 Downgrades are not supported after a state schema migration. Restore the
@@ -49,3 +54,10 @@ Do not enable deletion. Create a new state directory, run `dry-run`, then
 `bootstrap`. Matching remote content will be skipped when provider evidence
 matches. Run representative restore tests before treating the new generation as
 protected.
+
+## Local trash
+
+In two-way mode, provider-side deletions move the corresponding local file to
+`STATE_DIRECTORY/local-trash/RUN_ID/PATH`. Retention is operator-managed. Do not
+remove this directory until the deletion has been reviewed and ordinary backups
+cover the recovery window.

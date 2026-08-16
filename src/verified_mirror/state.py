@@ -221,7 +221,14 @@ class StateDatabase:
         self.connection.commit()
 
     def binding(self) -> dict[str, str]:
-        keys = ("source", "provider", "destination", "path_semantics", "fingerprint")
+        keys = (
+            "source",
+            "provider",
+            "destination",
+            "path_semantics",
+            "direction",
+            "fingerprint",
+        )
         return {key: value for key in keys if (value := self.meta(f"binding.{key}")) is not None}
 
     def bind(self, expected: dict[str, str], *, expected_tracked_files: int | None = None) -> None:
@@ -336,6 +343,14 @@ class StateDatabase:
         return self.connection.execute(
             "SELECT * FROM files WHERE path=? AND deleted_at IS NULL", (path,)
         ).fetchone()
+
+    def trusted_files(self) -> dict[str, sqlite3.Row]:
+        return {
+            str(row["path"]): row
+            for row in self.connection.execute(
+                "SELECT * FROM files WHERE deleted_at IS NULL ORDER BY path"
+            )
+        }
 
     def staged_file(self, run_id: str, path: str):
         return self.connection.execute(
@@ -502,6 +517,14 @@ class StateDatabase:
                 "SELECT path FROM run_deletions WHERE run_id=? ORDER BY path", (run_id,)
             )
         ]
+
+    def retain_deletion_set(self, run_id: str, paths: Sequence[str]) -> None:
+        with self.connection:
+            self.connection.execute("DELETE FROM run_deletions WHERE run_id=?", (run_id,))
+            self.connection.executemany(
+                "INSERT INTO run_deletions(run_id,path) VALUES(?,?)",
+                ((run_id, path) for path in paths),
+            )
 
     @staticmethod
     def deletion_digest(paths: Sequence[str]) -> str:

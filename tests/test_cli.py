@@ -9,6 +9,7 @@ from io import StringIO
 from pathlib import Path
 
 from verified_mirror.cli import main
+from verified_mirror.config import load_config
 
 
 class CLITests(unittest.TestCase):
@@ -70,6 +71,12 @@ maximum_queued_parents = 2
         code, output, _ = self.invoke("doctor")
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(output)["stateIntegrity"], "ok")
+
+    def test_direction_switch_accepts_one_way_and_two_way(self):
+        self.assertEqual(load_config(self.config).sync.direction, "upload-only")
+        with self.config.open("a", encoding="utf-8") as handle:
+            handle.write('\n[sync]\ndirection = "two-way"\n')
+        self.assertEqual(load_config(self.config).sync.direction, "two-way")
 
     def test_state_backup_does_not_migrate_source(self):
         self.state.mkdir()
